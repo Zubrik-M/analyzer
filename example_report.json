@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "summary": {
+    "files_scanned": 2,
+    "findings": 3,
+    "errors": 0
+  },
+  "findings": [
+    {
+      "file": "vulnerable.py",
+      "line": 4,
+      "column": 1,
+      "rule_id": "PY-SECRET-001",
+      "type": "Пароль в исходном коде",
+      "cwe": "CWE-798",
+      "severity": "medium",
+      "description": "Переменной password присвоен непустой строковый литерал.",
+      "recommendation": "Хранить секрет вне исходного кода и загружать его из защищённого хранилища."
+    },
+    {
+      "file": "vulnerable.py",
+      "line": 7,
+      "column": 5,
+      "rule_id": "PY-CMD-001",
+      "type": "Вызов оболочки с shell=True",
+      "cwe": "CWE-78",
+      "severity": "high",
+      "description": "Вызов subprocess.run с включённой системной оболочкой требует проверки происхождения команды.",
+      "recommendation": "Передавать команду списком аргументов и по возможности использовать shell=False."
+    },
+    {
+      "file": "vulnerable.py",
+      "line": 8,
+      "column": 12,
+      "rule_id": "PY-DESER-001",
+      "type": "Потенциально опасная десериализация",
+      "cwe": "CWE-502",
+      "severity": "high",
+      "description": "Вызов pickle.loads требует подтверждения доверенности входных данных.",
+      "recommendation": "Не применять pickle к недоверенным данным; использовать безопасный формат и проверять структуру."
+    }
+  ],
+  "errors": []
+}

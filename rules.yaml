@@ -1,0 +1,32 @@
+rules:
+  - id: PY-CMD-001
+    name: Вызов оболочки с shell=True
+    cwe: CWE-78
+    severity: high
+    description: Вызов subprocess.run с включённой системной оболочкой требует проверки происхождения команды.
+    recommendation: Передавать команду списком аргументов и по возможности использовать shell=False.
+    match:
+      kind: call
+      function: subprocess.run
+      predicate: keyword_true
+      keyword: shell
+  - id: PY-SECRET-001
+    name: Пароль в исходном коде
+    cwe: CWE-798
+    severity: medium
+    description: Переменной password присвоен непустой строковый литерал.
+    recommendation: Хранить секрет вне исходного кода и загружать его из защищённого хранилища.
+    match:
+      kind: assignment
+      target: password
+      predicate: string_literal
+  - id: PY-DESER-001
+    name: Потенциально опасная десериализация
+    cwe: CWE-502
+    severity: high
+    description: Вызов pickle.loads требует подтверждения доверенности входных данных.
+    recommendation: Не применять pickle к недоверенным данным; использовать безопасный формат и проверять структуру.
+    match:
+      kind: call
+      function: pickle.loads
+      predicate: any_call
