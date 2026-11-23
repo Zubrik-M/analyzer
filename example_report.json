@@ -12,9 +12,12 @@
       "column": 1,
       "rule_id": "PY-SECRET-001",
       "type": "Пароль в исходном коде",
+      "category": "Hard-coded Secrets",
       "cwe": "CWE-798",
       "severity": "medium",
       "description": "Переменной password присвоен непустой строковый литерал.",
+      "message": "Переменной password присвоен непустой строковый литерал.",
+      "code": "password = \"demo-only-secret\"",
       "recommendation": "Хранить секрет вне исходного кода и загружать его из защищённого хранилища."
     },
     {
@@ -23,9 +26,12 @@
       "column": 5,
       "rule_id": "PY-CMD-001",
       "type": "Вызов оболочки с shell=True",
+      "category": "Command Injection",
       "cwe": "CWE-78",
       "severity": "high",
-      "description": "Вызов subprocess.run с включённой системной оболочкой требует проверки происхождения команды.",
+      "description": "Вызов subprocess с включённой системной оболочкой требует проверки происхождения команды.",
+      "message": "Вызов subprocess с включённой системной оболочкой требует проверки происхождения команды.",
+      "code": "subprocess.run(command, shell=True)",
       "recommendation": "Передавать команду списком аргументов и по возможности использовать shell=False."
     },
     {
@@ -34,9 +40,12 @@
       "column": 12,
       "rule_id": "PY-DESER-001",
       "type": "Потенциально опасная десериализация",
+      "category": "Insecure Deserialization",
       "cwe": "CWE-502",
       "severity": "high",
       "description": "Вызов pickle.loads требует подтверждения доверенности входных данных.",
+      "message": "Вызов pickle.loads требует подтверждения доверенности входных данных.",
+      "code": "pickle.loads(serialized)",
       "recommendation": "Не применять pickle к недоверенным данным; использовать безопасный формат и проверять структуру."
     }
   ],

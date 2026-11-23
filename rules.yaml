@@ -1,17 +1,41 @@
+sources:
+  - input
+  - request.args
+  - request.form
+  - request.json
+  - request.values
+  - flask.request.args
+  - flask.request.form
+  - flask.request.json
+  - flask.request.values
+  - os.environ
+contexts:
+  example_secrets: [changeme, placeholder, your_api_key, testtest, password, xxxxxxxx]
+  hash: [password, passwd, secret]
+  crypto: [signature, signing, auth_digest]
+  random: [token, password, secret, session]
+sanitizers:
+  command: [shlex.quote]
+  path: []
+  sql: []
+  code: []
 rules:
   - id: PY-CMD-001
     name: Вызов оболочки с shell=True
+    category: Command Injection
     cwe: CWE-78
     severity: high
-    description: Вызов subprocess.run с включённой системной оболочкой требует проверки происхождения команды.
+    description: Вызов subprocess с включённой системной оболочкой требует проверки происхождения команды.
     recommendation: Передавать команду списком аргументов и по возможности использовать shell=False.
     match:
       kind: call
-      function: subprocess.run
+      function: 'subprocess.*'
       predicate: keyword_true
       keyword: shell
+      skip_if_tainted_argument: true
   - id: PY-SECRET-001
     name: Пароль в исходном коде
+    category: Hard-coded Secrets
     cwe: CWE-798
     severity: medium
     description: Переменной password присвоен непустой строковый литерал.
@@ -22,6 +46,7 @@ rules:
       predicate: string_literal
   - id: PY-DESER-001
     name: Потенциально опасная десериализация
+    category: Insecure Deserialization
     cwe: CWE-502
     severity: high
     description: Вызов pickle.loads требует подтверждения доверенности входных данных.
@@ -30,3 +55,155 @@ rules:
       kind: call
       function: pickle.loads
       predicate: any_call
+  - id: PY-CMD-002
+    name: Недоверенная команда оболочки
+    category: Command Injection
+    cwe: CWE-78
+    severity: high
+    description: Недоверенные данные переданы системной оболочке.
+    recommendation: Использовать subprocess с массивом аргументов и shell=False.
+    match: {kind: taint, function: 'os.system', predicate: command_tainted, keyword: [command]}
+  - id: PY-CMD-003
+    name: Недоверенная команда в subprocess
+    category: Command Injection
+    cwe: CWE-78
+    severity: high
+    description: Недоверенные данные переданы subprocess с оболочкой.
+    recommendation: Передавать аргументы списком без shell=True.
+    match: {kind: taint, function: 'subprocess.*', predicate: command_tainted, keyword: [args, command]}
+  - id: PY-CMD-004
+    name: Недоверенная команда в os.popen
+    category: Command Injection
+    cwe: CWE-78
+    severity: high
+    description: Недоверенные данные переданы оболочке через os.popen.
+    recommendation: Использовать subprocess с shell=False.
+    match: {kind: taint, function: os.popen, predicate: command_tainted, keyword: [cmd, command]}
+  - id: PY-SQL-001
+    name: Недоверенный SQL-запрос
+    category: SQL Injection
+    cwe: CWE-89
+    severity: high
+    description: SQL-запрос содержит недоверенные данные.
+    recommendation: Использовать параметры драйвера SQL.
+    match: {kind: taint, function: '*.execute', predicate: sql_tainted, keyword: [operation, query, sql]}
+  - id: PY-SQL-002
+    name: Недоверенный пакетный SQL-запрос
+    category: SQL Injection
+    cwe: CWE-89
+    severity: high
+    description: Пакетный SQL-запрос содержит недоверенные данные.
+    recommendation: Использовать параметризованный запрос.
+    match: {kind: taint, function: '*.executemany', predicate: sql_tainted, keyword: [operation, query, sql]}
+  - id: PY-PATH-001
+    name: Недоверенный путь к файлу
+    category: Path Traversal
+    cwe: CWE-22
+    severity: high
+    description: Недоверенный путь передан в open.
+    recommendation: Проверить разрешённую директорию и нормализовать путь.
+    match: {kind: taint, function: open, predicate: path_tainted, keyword: [file]}
+  - id: PY-SECRET-002
+    name: Секрет в исходном коде
+    category: Hard-coded Secrets
+    cwe: CWE-798
+    severity: medium
+    description: Подозрительный строковый секрет записан в исходном коде.
+    recommendation: Загрузить секрет из защищённого хранилища.
+    match: {kind: assignment, target: ['*token*', '*api_key*', '*secret_key*'], predicate: secret_literal}
+  - id: PY-DESER-002
+    name: Чтение pickle
+    category: Insecure Deserialization
+    cwe: CWE-502
+    severity: high
+    description: pickle.load может выполнить код из сериализованных данных.
+    recommendation: Использовать безопасный формат данных.
+    match: {kind: call, function: pickle.load, predicate: any_call}
+  - id: PY-DESER-003
+    name: Небезопасный YAML loader
+    category: Insecure Deserialization
+    cwe: CWE-502
+    severity: high
+    description: yaml.load вызван без SafeLoader.
+    recommendation: Использовать yaml.safe_load или SafeLoader.
+    match: {kind: call, function: yaml.load, predicate: yaml_unsafe}
+  - id: PY-CODE-001
+    name: Недоверенный eval
+    category: Code Injection
+    cwe: CWE-94
+    severity: high
+    description: Недоверенные данные переданы в eval.
+    recommendation: Удалить динамическое выполнение; разобрать данные безопасным парсером.
+    match: {kind: taint, function: eval, predicate: code_tainted, keyword: [source]}
+  - id: PY-CODE-002
+    name: Недоверенный exec
+    category: Code Injection
+    cwe: CWE-94
+    severity: high
+    description: Недоверенные данные переданы в exec.
+    recommendation: Избегать динамического выполнения кода.
+    match: {kind: taint, function: exec, predicate: code_tainted, keyword: [source, object]}
+  - id: PY-CRYPTO-001
+    name: Слабый хеш пароля
+    category: Weak Password Hashing
+    cwe: CWE-916
+    severity: high
+    description: MD5 или SHA-1 используется в контексте пароля.
+    recommendation: Использовать Argon2, scrypt или bcrypt с солью.
+    match: {kind: call, function: 'hashlib.*', predicate: weak_hash}
+  - id: PY-CRYPTO-002
+    name: Слабый хеш в криптографическом контексте
+    category: Weak Cryptography
+    cwe: CWE-328
+    severity: medium
+    description: MD5 или SHA-1 используется для подписи или аутентификационного хеша.
+    recommendation: Использовать современный алгоритм и подходящую конструкцию MAC или подписи.
+    match: {kind: call, function: 'hashlib.*', predicate: weak_crypto}
+  - id: PY-RANDOM-001
+    name: Несекретный генератор для токена
+    category: Insecure Randomness
+    cwe: CWE-338
+    severity: medium
+    description: random используется для секрета или токена.
+    recommendation: Использовать модуль secrets.
+    match: {kind: call, function: 'random.*', predicate: random_secret}
+  - id: PY-TLS-001
+    name: Отключена проверка TLS
+    category: TLS Misconfiguration
+    cwe: CWE-295
+    severity: high
+    description: requests вызван с verify=False.
+    recommendation: Включить проверку сертификата.
+    match: {kind: call, function: 'requests.*', predicate: keyword_false, keyword: verify}
+  - id: PY-TLS-002
+    name: Небезопасный SSL-контекст
+    category: TLS Misconfiguration
+    cwe: CWE-295
+    severity: high
+    description: Создан SSL-контекст без проверки сертификата.
+    recommendation: Использовать ssl.create_default_context.
+    match: {kind: call, function: ssl._create_unverified_context, predicate: any_call}
+  - id: PY-DEBUG-001
+    name: Включён debug
+    category: Debug Mode
+    cwe: CWE-489
+    severity: medium
+    description: Режим отладки включён в конфигурации.
+    recommendation: Отключить debug в рабочем окружении.
+    match: {kind: config, target: DEBUG, predicate: debug_true}
+  - id: PY-DEBUG-002
+    name: Включён debug при запуске приложения
+    category: Debug Mode
+    cwe: CWE-489
+    severity: medium
+    description: Приложение запущено с debug=True.
+    recommendation: Выключить режим отладки в рабочем окружении.
+    match: {kind: call, function: '*.run', predicate: keyword_true, keyword: debug}
+  - id: PY-TEMP-001
+    name: Небезопасное временное имя
+    category: Unsafe File Operations
+    cwe: CWE-377
+    severity: medium
+    description: mktemp создаёт имя без атомарного открытия файла.
+    recommendation: Использовать NamedTemporaryFile или mkstemp.
+    match: {kind: call, function: tempfile.mktemp, predicate: unsafe_temp}

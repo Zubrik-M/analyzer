@@ -1,0 +1,124 @@
+{
+  "vulnerable": [
+    {
+      "file": "vulnerable/cmd_001.py",
+      "line": 2,
+      "rule_id": "PY-CMD-001"
+    },
+    {
+      "file": "vulnerable/cmd_002.py",
+      "line": 3,
+      "rule_id": "PY-CMD-002"
+    },
+    {
+      "file": "vulnerable/cmd_003.py",
+      "line": 2,
+      "rule_id": "PY-CMD-003"
+    },
+    {
+      "file": "vulnerable/cmd_004.py",
+      "line": 2,
+      "rule_id": "PY-CMD-004"
+    },
+    {
+      "file": "vulnerable/sql_001.py",
+      "line": 2,
+      "rule_id": "PY-SQL-001"
+    },
+    {
+      "file": "vulnerable/sql_002.py",
+      "line": 2,
+      "rule_id": "PY-SQL-002"
+    },
+    {
+      "file": "vulnerable/path_001.py",
+      "line": 2,
+      "rule_id": "PY-PATH-001"
+    },
+    {
+      "file": "vulnerable/code_001.py",
+      "line": 2,
+      "rule_id": "PY-CODE-001"
+    },
+    {
+      "file": "vulnerable/code_002.py",
+      "line": 2,
+      "rule_id": "PY-CODE-002"
+    },
+    {
+      "file": "vulnerable/secret_001.py",
+      "line": 1,
+      "rule_id": "PY-SECRET-001"
+    },
+    {
+      "file": "vulnerable/secret_002.py",
+      "line": 1,
+      "rule_id": "PY-SECRET-002"
+    },
+    {
+      "file": "vulnerable/deser_001.py",
+      "line": 2,
+      "rule_id": "PY-DESER-001"
+    },
+    {
+      "file": "vulnerable/deser_002.py",
+      "line": 2,
+      "rule_id": "PY-DESER-002"
+    },
+    {
+      "file": "vulnerable/deser_003.py",
+      "line": 2,
+      "rule_id": "PY-DESER-003"
+    },
+    {
+      "file": "vulnerable/crypto_001.py",
+      "line": 2,
+      "rule_id": "PY-CRYPTO-001"
+    },
+    {
+      "file": "vulnerable/crypto_002.py",
+      "line": 2,
+      "rule_id": "PY-CRYPTO-002"
+    },
+    {
+      "file": "vulnerable/random_001.py",
+      "line": 2,
+      "rule_id": "PY-RANDOM-001"
+    },
+    {
+      "file": "vulnerable/tls_001.py",
+      "line": 2,
+      "rule_id": "PY-TLS-001"
+    },
+    {
+      "file": "vulnerable/tls_002.py",
+      "line": 2,
+      "rule_id": "PY-TLS-002"
+    },
+    {
+      "file": "vulnerable/debug_001.py",
+      "line": 1,
+      "rule_id": "PY-DEBUG-001"
+    },
+    {
+      "file": "vulnerable/debug_002.py",
+      "line": 1,
+      "rule_id": "PY-DEBUG-002"
+    },
+    {
+      "file": "vulnerable/temp_001.py",
+      "line": 2,
+      "rule_id": "PY-TEMP-001"
+    }
+  ],
+  "safe": [
+    "safe/command_arguments.py",
+    "safe/shadowed_module.py",
+    "safe/sql_parameters.py",
+    "safe/fixed_path.py",
+    "safe/safe_yaml.py",
+    "safe/strong_hash.py",
+    "safe/secrets_token.py",
+    "safe/verified_tls.py"
+  ]
+}

@@ -1,11 +1,15 @@
 """Behavior checks for the demonstrator's public analysis functions."""
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-import prototype.analyzer
+from prototype import analyzer
+from prototype.scanner.engine import PREDICATE_CHECKS
+from prototype.scanner.rules import PREDICATES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,10 +17,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class AnalyzerTests(unittest.TestCase):
     def setUp(self):
-        self.rules = prototype.analyzer.load_rules(ROOT / "rules.yaml")
+        self.rules = analyzer.load_rules(ROOT / "rules.yaml")
+
+    def test_every_supported_predicate_has_a_checker(self):
+        self.assertEqual(set(PREDICATE_CHECKS), PREDICATES)
 
     def test_known_examples_and_stable_order(self):
-        report = prototype.analyzer.analyze(ROOT / "examples", self.rules)
+        report = analyzer.analyze(ROOT / "examples", self.rules)
         self.assertEqual(report["summary"], {"files_scanned": 2, "findings": 3, "errors": 0})
         self.assertEqual(
             [(item["file"], item["line"], item["rule_id"]) for item in report["findings"]],
@@ -26,20 +33,33 @@ class AnalyzerTests(unittest.TestCase):
         )
         self.assertEqual(report, json.loads((ROOT / "example_report.json").read_text(encoding="utf-8")))
 
+    def test_interactive_launch_from_another_directory(self):
+        with tempfile.TemporaryDirectory() as name:
+            output = Path(name) / 'report.json'
+            result = subprocess.run(
+                [sys.executable, str(ROOT / 'analyzer.py')],
+                input=f'\ny\n{output}\n0\n', text=True, capture_output=True,
+                cwd=name, check=True,
+            )
+            self.assertIn('Проверено файлов: 2 | предупреждений: 3 | ошибок: 0', result.stdout)
+            self.assertIn('[ВЫСОКИЙ]', result.stdout)
+            self.assertIn('Сохранить JSON-отчёт? [y/N]', result.stdout)
+            self.assertEqual(json.loads(output.read_text(encoding='utf-8'))['summary']['findings'], 3)
+
     def test_skips_service_directories_and_continues_after_syntax_error(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             (root / "good.py").write_text('password = "example"\n', encoding="utf-8")
             (root / "broken.py").write_text("def bad(:\n", encoding="utf-8")
-            for directory in prototype.analyzer.EXCLUDED_DIRECTORIES:
+            for directory in analyzer.EXCLUDED_DIRECTORIES:
                 hidden = root / directory
                 hidden.mkdir()
                 (hidden / "ignored.py").write_text('password = "hidden"\n', encoding="utf-8")
-            report = prototype.analyzer.analyze(root, self.rules)
+            report = analyzer.analyze(root, self.rules)
             self.assertEqual(report["summary"], {"files_scanned": 2, "findings": 1, "errors": 1})
             self.assertEqual(report["findings"][0]["file"], "good.py")
             self.assertEqual(report["errors"][0]["file"], "broken.py")
-            self.assertEqual(report, prototype.analyzer.analyze(root, self.rules))
+            self.assertEqual(report, analyzer.analyze(root, self.rules))
 
     def test_source_is_parsed_without_execution(self):
         with tempfile.TemporaryDirectory() as name:
@@ -47,7 +67,7 @@ class AnalyzerTests(unittest.TestCase):
             marker = root / "executed"
             source = root / "sample.py"
             source.write_text(f'from pathlib import Path\nPath({str(marker)!r}).touch()\n', encoding="utf-8")
-            report = prototype.analyzer.analyze(source, self.rules)
+            report = analyzer.analyze(source, self.rules)
             self.assertEqual(report["summary"], {"files_scanned": 1, "findings": 0, "errors": 0})
             self.assertFalse(marker.exists())
 
@@ -56,6 +76,7 @@ class AnalyzerTests(unittest.TestCase):
             "severity: urgent",
             "match: {kind: call, predicate: string_literal, function: f}",
             "match: {kind: [call], predicate: any_call, function: f}",
+            "match: {kind: call, predicate: any_call, function: f, skip_if_tainted_argument: true}",
         ]
         with tempfile.TemporaryDirectory() as name:
             path = Path(name) / "rules.yaml"
@@ -74,7 +95,7 @@ class AnalyzerTests(unittest.TestCase):
                     target = "severity: high" if replacement.startswith("severity") else "match: {kind: call, predicate: any_call, function: f}"
                     path.write_text(content.replace(target, replacement), encoding="utf-8")
                     with self.assertRaises(ValueError):
-                        prototype.analyzer.load_rules(path)
+                        analyzer.load_rules(path)
 
     def test_accepts_documented_severity_names(self):
         with tempfile.TemporaryDirectory() as name:
@@ -90,7 +111,7 @@ class AnalyzerTests(unittest.TestCase):
                 "    match: {kind: call, predicate: any_call, function: f}\n",
                 encoding="utf-8",
             )
-            self.assertEqual(prototype.analyzer.load_rules(path)[0]["severity"], "high")
+            self.assertEqual(analyzer.load_rules(path)[0]["severity"], "high")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,2 @@
+import requests
+response = requests.get(endpoint, verify=True)

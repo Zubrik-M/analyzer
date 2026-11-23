@@ -1,0 +1,10 @@
+{
+  "vulnerable": [
+    {"file": "vulnerable/command.py", "line": 4, "rule_id": "PY-CMD-002"},
+    {"file": "vulnerable/sql.py", "line": 2, "rule_id": "PY-SQL-001"},
+    {"file": "vulnerable/path.py", "line": 2, "rule_id": "PY-PATH-001"},
+    {"file": "vulnerable/code.py", "line": 1, "rule_id": "PY-CODE-001"},
+    {"file": "vulnerable/tls.py", "line": 2, "rule_id": "PY-TLS-001"}
+  ],
+  "safe": ["safe/command.py", "safe/sql.py", "safe/path.py", "safe/code.py", "safe/tls.py"]
+}
