@@ -22,10 +22,11 @@ class Value:
     sanitized: frozenset = field(default_factory=frozenset)
     literal: object = None
     allowed_values: frozenset | None = None
+    elements: tuple | None = None
 
     def step(self, label):
         return Value(frozenset(Origin(o.name, o.line, o.chain + (label,)) for o in self.origins),
-                     self.sanitized, self.literal, self.allowed_values)
+                     self.sanitized, self.literal, self.allowed_values, self.elements)
 
 
 EMPTY = Value()
@@ -33,6 +34,8 @@ EMPTY = Value()
 
 def merge(*values):
     values = [v for v in values if v is not None]
+    if not values:
+        return EMPTY
     origins = frozenset().union(*(v.origins for v in values))
 
     tainted = [v for v in values if v.origins]
@@ -41,7 +44,13 @@ def merge(*values):
     literal = values[0].literal if len(values) == 1 else None
     allowed_values = values[0].allowed_values if len(values) == 1 else None
 
-    return Value(origins, sanitized, literal, allowed_values)
+    elements = None
+    if all(v.elements is not None for v in values):
+        lengths = {len(v.elements) for v in values}
+        if len(lengths) == 1:
+            elements = tuple(merge(*(v.elements[i] for v in values)) for i in range(lengths.pop()))
+
+    return Value(origins, sanitized, literal, allowed_values, elements)
 
 
 class Flow:
@@ -51,8 +60,9 @@ class Flow:
         self.active = set()
 
     def function_scope(self, fn, parent):
-        local = Scope(parent)
+        local = Scope(parent, 'function')
         globals_ = set()
+        nonlocals = set()
         bound = set()
 
         def visit(node):
@@ -60,8 +70,11 @@ class Flow:
                 bound.add(node.name)
                 return
 
-            if isinstance(node, (ast.Global, ast.Nonlocal)):
+            if isinstance(node, ast.Global):
                 globals_.update(node.names)
+                return
+            if isinstance(node, ast.Nonlocal):
+                nonlocals.update(node.names)
                 return
 
             if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
@@ -73,7 +86,9 @@ class Flow:
         for stmt in fn.body:
             visit(stmt)
 
-        local.shadowed.update(bound - globals_)
+        local.globals = globals_
+        local.nonlocals = nonlocals
+        local.shadowed.update(bound - globals_ - nonlocals)
 
         return local
 
@@ -99,11 +114,20 @@ class Flow:
             if name in self.rules.sources:
                 return Value(frozenset({Origin(name, node.lineno)}))
 
+            sequence = None
+            if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and type(node.slice.value) is int:
+                sequence = self.expression(node.value, scope, depth)
+                if sequence.elements is not None:
+                    try:
+                        return sequence.elements[node.slice.value]
+                    except IndexError:
+                        pass
+
             stored = scope.value(name) if name else None
             if stored is not None:
                 return stored
 
-            return self.expression(node.value, scope, depth)
+            return sequence if sequence is not None else self.expression(node.value, scope, depth)
 
         if isinstance(node, ast.Call):
             name = dotted(node.func, scope)
@@ -125,11 +149,13 @@ class Flow:
                 fn = scope.function(node.func.id if isinstance(node.func, ast.Name) else node.func.attr)
                 candidates = fn if isinstance(fn, tuple) else (fn,)
                 results = []
+                call_scopes = []
                 for candidate in candidates:
                     if candidate is None or depth >= 3 or id(candidate) in self.active:
                         continue
                     fn = candidate
-                    local = self.function_scope(fn, scope)
+                    call_scope = scope.clone(deep=True)
+                    local = self.function_scope(fn, call_scope)
                     params = fn.args.posonlyargs + fn.args.args
                     defaults = [EMPTY] * (len(params) - len(fn.args.defaults)) + [self.expression(x, scope, depth) for x in fn.args.defaults]
                     call_args = ([receiver] if isinstance(node.func, ast.Attribute) else []) + args
@@ -154,6 +180,9 @@ class Flow:
                         results.extend(self.block(fn.body, local, depth + 1))
                     finally:
                         self.active.remove(id(fn))
+                    call_scopes.append(call_scope)
+                if call_scopes:
+                    self.join_scope(scope, call_scopes)
                 if results:
                     return merge(*results)
 
@@ -173,7 +202,24 @@ class Flow:
         if isinstance(node, (ast.BinOp, ast.BoolOp, ast.Compare, ast.IfExp)):
             return merge(*(self.expression(x, scope, depth) for x in ast.iter_child_nodes(node) if isinstance(x, ast.expr)))
 
-        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        if isinstance(node, (ast.List, ast.Tuple)):
+            elements = []
+            contributions = []
+            known = True
+            for item in node.elts:
+                value = self.expression(item, scope, depth)
+                contributions.append(value)
+                if isinstance(item, ast.Starred):
+                    if value.elements is None:
+                        known = False
+                    else:
+                        elements.extend(value.elements)
+                else:
+                    elements.append(value)
+            combined = merge(*contributions)
+            return Value(combined.origins, combined.sanitized, elements=tuple(elements) if known else None)
+
+        if isinstance(node, ast.Set):
             return merge(*(self.expression(x, scope, depth) for x in node.elts))
 
         if isinstance(node, ast.Dict):
@@ -211,11 +257,29 @@ class Flow:
             self.assign(target.value, value, scope)
 
         elif isinstance(target, (ast.Tuple, ast.List)):
-            for part in target.elts:
-                self.assign(part, value, scope)
+            parts = target.elts
+            star = next((i for i, part in enumerate(parts) if isinstance(part, ast.Starred)), None)
+            if value.elements is not None and (len(value.elements) == len(parts) if star is None else len(value.elements) >= len(parts) - 1):
+                if star is None:
+                    pairs = zip(parts, value.elements)
+                else:
+                    prefix = list(zip(parts[:star], value.elements[:star]))
+                    suffix_count = len(parts) - star - 1
+                    suffix = list(zip(parts[star + 1:], value.elements[len(value.elements) - suffix_count:])) if suffix_count else []
+                    middle = value.elements[star:len(value.elements) - suffix_count if suffix_count else None]
+                    grouped = merge(*middle)
+                    starred = Value(grouped.origins, grouped.sanitized, elements=tuple(middle))
+                    pairs = prefix + [(parts[star], starred)] + suffix
+                for part, item in pairs:
+                    self.assign(part, item, scope)
+            else:
+                for part in parts:
+                    self.assign(part, value, scope)
 
 
     def join_scope(self, target, branches):
+        if target.parent is not None:
+            self.join_scope(target.parent, [branch.parent for branch in branches])
         names = set().union(*(s.values.keys() for s in branches))
 
         for name in names:
@@ -280,7 +344,7 @@ class Flow:
 
         for stmt in body:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                scope.functions[stmt.name] = stmt
+                scope.owner(stmt.name).functions[stmt.name] = stmt
 
         for stmt in body:
             handler = getattr(self, f'statement_{type(stmt).__name__}', None)
@@ -298,10 +362,10 @@ class Flow:
 
     def statement_FunctionDef(self, stmt, scope, depth):
         scope.bind(stmt.name, EMPTY)
-        scope.functions[stmt.name] = stmt
+        scope.owner(stmt.name).functions[stmt.name] = stmt
 
         if depth == 0:
-            child = self.function_scope(stmt, scope)
+            child = self.function_scope(stmt, scope.clone(deep=True))
             for arg in stmt.args.posonlyargs + stmt.args.args + stmt.args.kwonlyargs:
                 child.bind(arg.arg, EMPTY)
 
@@ -347,7 +411,7 @@ class Flow:
         branches = []
 
         for index, arm in enumerate((stmt.body, stmt.orelse)):
-            branch = scope.clone()
+            branch = scope.clone(deep=True)
             if index == 0:
                 self.apply_allowlist(stmt.test, branch)
 
@@ -360,12 +424,12 @@ class Flow:
     def statement_Try(self, stmt, scope, depth):
         returns = []
         branches = []
-        success = scope.clone()
+        success = scope.clone(deep=True)
         returns.extend(self.block(stmt.body + stmt.orelse, success, depth))
         branches.append(success)
         for handler in stmt.handlers:
             for count in range(len(stmt.body) + 1):
-                branch = scope.clone()
+                branch = scope.clone(deep=True)
                 self.block(stmt.body[:count], branch, depth)
                 returns.extend(self.block(handler.body, branch, depth))
                 branches.append(branch)
@@ -377,10 +441,10 @@ class Flow:
     def statement_Match(self, stmt, scope, depth):
         subject = self.expression(stmt.subject, scope, depth)
         returns = []
-        branches = [scope.clone()]
+        branches = [scope.clone(deep=True)]
 
         for case in stmt.cases:
-            branch = scope.clone()
+            branch = scope.clone(deep=True)
             self.bind_pattern(case.pattern, subject, branch)
 
             if case.guard:
@@ -393,7 +457,7 @@ class Flow:
         return returns
 
     def statement_Loop(self, stmt, scope, depth):
-        branch = scope.clone()
+        branch = scope.clone(deep=True)
 
         if isinstance(stmt, ast.While):
             self.expression(stmt.test, branch, depth)
@@ -402,7 +466,7 @@ class Flow:
             self.assign(stmt.target, value, branch)
 
         returns = self.block(stmt.body, branch, depth)
-        self.join_scope(scope, [scope.clone(), branch])
+        self.join_scope(scope, [scope.clone(deep=True), branch])
         returns.extend(self.block(stmt.orelse, scope, depth))
         return returns
 

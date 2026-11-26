@@ -19,14 +19,37 @@ def dotted(node, scope):
 
 
 class Scope:
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, kind='block'):
         self.parent = parent
+        self.kind = kind
         self.values = {}
         self.aliases = {}
         self.shadowed = set()
         self.functions = {}
+        self.globals = set()
+        self.nonlocals = set()
+
+    def module(self):
+        scope = self
+        while scope.parent is not None:
+            scope = scope.parent
+        return scope
+
+    def owner(self, name):
+        if name in self.globals:
+            return self.module()
+        if name in self.nonlocals:
+            scope = self.parent
+            while scope is not None:
+                if scope.kind == 'function' and name in scope.shadowed:
+                    return scope
+                scope = scope.parent
+        return self
 
     def resolve(self, name):
+        owner = self.owner(name)
+        if owner is not self:
+            return owner.resolve(name)
         if name in self.aliases:
             return self.aliases[name]
 
@@ -36,6 +59,9 @@ class Scope:
         return self.parent.resolve(name) if self.parent else name
 
     def value(self, name):
+        owner = self.owner(name)
+        if owner is not self:
+            return owner.value(name)
         if name in self.values:
             return self.values[name]
 
@@ -45,6 +71,9 @@ class Scope:
         return self.parent.value(name) if self.parent else None
 
     def function(self, name):
+        owner = self.owner(name)
+        if owner is not self:
+            return owner.function(name)
         if name in self.functions:
             return self.functions[name]
 
@@ -54,17 +83,23 @@ class Scope:
         return self.parent.function(name) if self.parent else None
 
     def bind(self, name, value):
+        owner = self.owner(name)
+        if owner is not self:
+            owner.bind(name, value)
+            return
         self.shadowed.add(name)
         self.aliases.pop(name, None)
         self.functions.pop(name, None)
         self.values[name] = value
 
-    def clone(self):
-        other = Scope(self.parent)
+    def clone(self, deep=False):
+        other = Scope(self.parent.clone(deep=True) if deep and self.parent else self.parent, self.kind)
         other.values = self.values.copy()
         other.aliases = self.aliases.copy()
         other.shadowed = self.shadowed.copy()
         other.functions = self.functions.copy()
+        other.globals = self.globals.copy()
+        other.nonlocals = self.nonlocals.copy()
 
         return other
 
@@ -76,7 +111,8 @@ class Scope:
             pairs = ((a.asname or a.name, f"{module}.{a.name}") for a in node.names if a.name != '*')
 
         for alias, full in pairs:
-            self.aliases[alias] = full
-            self.shadowed.add(alias)
-            self.values.pop(alias, None)
-            self.functions.pop(alias, None)
+            owner = self.owner(alias)
+            owner.aliases[alias] = full
+            owner.shadowed.add(alias)
+            owner.values.pop(alias, None)
+            owner.functions.pop(alias, None)
