@@ -21,9 +21,11 @@ class Value:
     origins: frozenset = field(default_factory=frozenset)
     sanitized: frozenset = field(default_factory=frozenset)
     literal: object = None
+    allowed_values: frozenset | None = None
 
     def step(self, label):
-        return Value(frozenset(Origin(o.name, o.line, o.chain + (label,)) for o in self.origins), self.sanitized, self.literal)
+        return Value(frozenset(Origin(o.name, o.line, o.chain + (label,)) for o in self.origins),
+                     self.sanitized, self.literal, self.allowed_values)
 
 
 EMPTY = Value()
@@ -37,8 +39,9 @@ def merge(*values):
     sanitized = frozenset.intersection(*(v.sanitized for v in tainted)) if tainted else frozenset()
 
     literal = values[0].literal if len(values) == 1 else None
+    allowed_values = values[0].allowed_values if len(values) == 1 else None
 
-    return Value(origins, sanitized, literal)
+    return Value(origins, sanitized, literal, allowed_values)
 
 
 class Flow:
@@ -252,8 +255,11 @@ class Flow:
 
         value = branch.value(test.left.id)
         if value and value.origins:
-            branch.bind(test.left.id, Value(value.origins,
-                         value.sanitized | {'command', 'sql', 'path', 'code'}, value.literal))
+            allowed_values = frozenset(item.value for item in collection.elts)
+            if value.allowed_values is not None:
+                allowed_values &= value.allowed_values
+            branch.bind(test.left.id, Value(value.origins, value.sanitized,
+                                            value.literal, allowed_values))
 
 
     def bind_pattern(self, pattern, value, scope):

@@ -1,8 +1,12 @@
 """Behavior tests for data flow and contextual rules."""
+import ast
 import tempfile
 import unittest
 from pathlib import Path
-from prototype import analyzer
+
+import analyzer
+from scanner.flow import Flow, Origin, Value
+from scanner.imports import Scope
 
 RULES = analyzer.load_rules(Path(__file__).resolve().parents[1] / 'rules.yaml')
 
@@ -213,11 +217,42 @@ class FlowTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertEqual([f['rule_id'] for f in scan(source)['findings']], ['PY-CMD-002'])
 
-    def test_literal_allowlist_only_narrows_true_branch(self):
-        safe = 'import os\nx=input()\nif x in {"ls", "pwd"}:\n os.system(x)'
-        unsafe = 'import os\nx=input()\nif x in {"ls", "pwd"}:\n pass\nelse:\n os.system(x)'
-        self.assertEqual(scan(safe)['findings'], [])
-        self.assertEqual([f['rule_id'] for f in scan(unsafe)['findings']], ['PY-CMD-002'])
+    def test_allowlist_does_not_sanitize_any_sink_context(self):
+        cases = [
+            ('import os\nos.system(x)', 'PY-CMD-002'),
+            ('cursor.execute(x)', 'PY-SQL-001'),
+            ('open(x)', 'PY-PATH-001'),
+            ('eval(x)', 'PY-CODE-001'),
+        ]
+        for sink, expected in cases:
+            with self.subTest(sink=sink):
+                source = 'x=input()\nif x in {"safe", "unsafe; command"}:\n ' + sink.replace('\n', '\n ')
+                findings = scan(source)['findings']
+                self.assertIn(expected, [item['rule_id'] for item in findings])
+                finding = next(item for item in findings if item['rule_id'] == expected)
+                self.assertEqual(finding['taint']['source'], 'input')
+                self.assertEqual(finding['taint']['sanitized_for'], [])
+
+    def test_allowlist_keeps_warnings_in_both_branches(self):
+        source = 'import os\nx=input()\nif x in {"ls", "pwd"}:\n os.system(x)\nelse:\n os.system(x)'
+        self.assertEqual([f['rule_id'] for f in scan(source)['findings']], ['PY-CMD-002', 'PY-CMD-002'])
+
+    def test_allowlist_preserves_context_specific_sanitizer(self):
+        source = ('import os, shlex\nx=input()\nif x in {"ls", "pwd"}:\n'
+                  ' os.system(shlex.quote(x))\n cursor.execute(x)')
+        self.assertEqual([f['rule_id'] for f in scan(source)['findings']], ['PY-SQL-001'])
+
+    def test_allowlist_values_are_kept_separate_from_sanitization(self):
+        branch = Scope()
+        origin = Origin('input', 1)
+        branch.bind('x', Value(frozenset({origin}), frozenset({'command'})))
+        flow = Flow(RULES, lambda *args, **kwargs: None)
+        flow.apply_allowlist(ast.parse('x in {"one", "two"}', mode='eval').body, branch)
+        value = branch.value('x')
+        self.assertEqual(value.origins, frozenset({origin}))
+        self.assertEqual(value.sanitized, frozenset({'command'}))
+        self.assertEqual(value.allowed_values, frozenset({'one', 'two'}))
+        self.assertEqual(value.step('copy').allowed_values, value.allowed_values)
 
     def test_rule_categories_positive_and_safe(self):
         cases = [
